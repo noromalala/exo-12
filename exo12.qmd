@@ -1,0 +1,216 @@
+---
+title: "exo12"
+format: html
+editor: visual
+---
+
+## Step 1
+
+Load data and change the value of-999
+
+```{r}
+library(tidyverse)
+f <- "https://raw.githubusercontent.com/difiore/ada-2024-datasets/main/Mammal_lifehistories_v2.txt"
+d <- read_tsv(f, col_names = TRUE)
+head(d)
+
+install.packages("naniar")
+library(naniar)
+
+d <- replace_with_na_all(d, condition = ~.x == -999)
+
+```
+
+## Step 2
+
+Drop the variable litter size and refs
+
+```{r}
+
+d <- d[, !(names(d) %in% c("litter size", "refs"))]
+head(d)
+```
+
+## Step 3
+
+Log all of the variables
+
+```{r}
+
+library(dplyr)
+d <- d %>% 
+  mutate(
+  "logMass" = log(`mass(g)`),
+  "logGestation" = log(`gestation(mo)`),
+  "logNewBorn" = log(`newborn(g)`),
+  "logWeaning" = log(`weaning(mo)`),
+  "logWeanMass" = log(`wean mass(g)`),
+  "logAFR" = log(`AFR(mo)`),
+  "logMaxLife" = log(`max. life(mo)`),
+  "logLitterYear" = log(`litters/year`)
+)
+```
+
+## Step 4
+
+Regression and add residuals
+
+```{r}
+#Regression
+model <- lm(logMass ~ logGestation + logWeaning + logAFR + logMaxLife + logNewBorn + logWeanMass, data = d)
+
+
+# Extract residuals and add them to the dataframe
+library(dplyr)
+d <- mutate(d,
+            relGest = residuals(lm(logMass ~ logGestation, data = d, na.action = na.exclude)),
+            relWean = residuals(lm(logMass ~ logWeaning, data = d, na.action = na.exclude)),
+            relAFR = residuals(lm(logMass ~ logAFR, data = d, na.action = na.exclude)),
+            relLife = residuals(lm(logMass ~ logMaxLife, data = d, na.action = na.exclude)),
+            relNewbornMass = residuals(lm(logMass ~ logNewBorn, data = d, na.action = na.exclude)),
+            relWeaningMass = residuals(lm(logMass ~ logWeanMass, data = d, na.action = na.exclude))
+)
+head(d)
+
+
+```
+
+## Step 5
+
+Plots
+
+```{r}
+#Step 5
+#plot
+
+#max lifespan in relation to order
+
+library(ggplot2)
+
+ggplot(d, aes(x = order, y = relLife)) +
+  geom_boxplot() +
+  labs(x = "Mammalian Order", y = "Residuals of Max Lifespan") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  
+
+#newborn mass in relation to order
+
+ggplot(d, aes(x = order, y = relNewbornMass)) +
+  geom_boxplot() +
+  labs(x = "Mammalian Order", y = "Residuals of Newborn Mass") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+#weaning mass in relation to order
+
+ggplot(d, aes(x = order, y = relWeaningMass)) +
+  geom_boxplot() +
+  labs(x = "Mammalian Order", y = "Residuals of Weaning Mass") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+## Step 6
+
+Plots
+
+```{r}
+install.packages("tidymodels")
+library(tidymodels)
+
+# Drop NA
+d_new <- d %>%
+  drop_na(logMaxLife, logGestation, logNewBorn, logWeaning, logWeanMass, logLitterYear, logMass, logAFR)
+
+# Predictor: max life (I choose to drop variables as I go)
+library(MASS)
+m0 <- lm(logMaxLife ~ logGestation + logNewBorn + logWeaning + logWeanMass + logLitterYear + logMass, data = d_new)
+summary(m0)
+m1 <- update(m0, . ~ . - logNewBorn)
+drop1(m1, test = "F")
+
+m2 <- update(m1, . ~ . - logWeanMass)
+drop1(m2, test = "F")
+
+m3 <- update(m2, . ~ . - logWeaning)
+drop1(m3, test = "F")
+
+m4 <- update(m3, . ~ . - logMass)
+drop1(m4, test = "F")
+
+m5 <- update(m4, . ~ . - logLitterYear)
+drop1(m5, test = "F")
+
+s1 <- stepAIC(m0, scope = . ~ ., direction = "both")
+summary(s1)
+
+library(AICcmodavg)
+aictab(list(m0, m1, m2, m3, m4, m5), c("m0", "m1", "m2", "m3", "m4", "m5"))
+
+# Predictor: AFR
+ma <- lm(logAFR ~ logGestation + logNewBorn + logWeaning + logWeanMass + logLitterYear + logMass, data = d_new)
+summary(ma)
+
+mb <- update(ma, . ~ . - logNewBorn)
+drop1(mb, test = "F")
+
+mc <- update(mb, . ~ . - logWeanMass)
+drop1(mc, test = "F")
+
+md <- update(mc, . ~ . - logMass)
+drop1(md, test = "F")
+
+me <- update(md, . ~ . - logWeaning)
+drop1(me, test = "F")
+
+mf <- update(me, . ~ . - logLitterYear)
+drop1(mf, test = "F")
+
+s2 <- stepAIC(ma, scope = . ~ ., direction = "both")
+summary(s2)
+
+```
+
+Top variables
+
+For Maximum lifespan, m2, m3, m0 are the best models and for age at first reproduction mc, md, mb and me are the best models
+
+```{r}
+library(AICcmodavg)
+aictab(list(ma, mb, mc, md, me, mf), c("ma", "mb", "mc", "md", "me", "mf"))#I just list the models with their Delta_AICc
+
+# Top models
+top1 <- list(m2, m1, m0)
+top2 <- list(mc, md, mb, me)
+top1
+top2
+
+```
+
+Gestation appear in all top model and weaning followed by litters size per year are other variables that mostly appear in the top models.
+
+Calculate and plot the model-averaged coefficient
+
+```{r}
+#  model-averaged coefficients for top1
+library(MuMIn)
+
+modavg_coefs1 <- coef(model.avg(top1), se = TRUE)
+modavg_coefs2 <- coef(model.avg(top2), se = TRUE)
+
+#plot
+str(modavg_coefs1)
+plot(
+  modavg_coefs1,
+  ylim = c(-2, 2),  
+  pch = 16,
+  xlab = "Coefficient",
+  ylab = "Model Average",
+  main = "Model-Averaged Coefficients (Top 1)"
+)
+plot(
+  modavg_coefs2,
+  ylim = c(-2, 2),  # Adjust ylim as needed
+  pch = 16,
+  xlab = "Coefficient",
+  ylab = "Model Average",
+  main = "Model-Averaged Coefficients (Top 2)"
+)
+```
